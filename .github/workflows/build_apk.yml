@@ -1,0 +1,78 @@
+# .github/workflows/build_apk.yml
+name: Kivy APK Build # İş akışının adı
+
+# Bu iş akışı ne zaman çalışsın?
+on:
+  push:
+    branches: [ "main" ] # main dalına (branch) kod gönderildiğinde
+  pull_request:
+    branches: [ "main" ] # main dalında bir "pull request" oluşturulduğunda
+  # Elle çalıştırma seçeneği (GitHub sayfasından)
+  workflow_dispatch: # Actions sekmesinden elle başlatılabilmesi için
+
+# İş (Job) tanımı
+jobs:
+  build-android: # İşin adı
+    runs-on: ubuntu-20.04 # Ubuntu 20.04 LTS işletim sistemi üzerinde çalışacak
+
+    steps: # Bu işin adımları
+    # 1. Adım: Depoyu çek (kopyala)
+    - uses: actions/checkout@v3 # Hazır bir eylem kullanıyoruz
+
+    # 2. Adım: Python'u kur
+    - name: Set up Python 3.8
+      uses: actions/setup-python@v4 # Hazır bir eylem kullanıyoruz
+      with:
+        python-version: 3.8 # Kullanılacak Python sürümü
+
+    # 3. Adım: Gerekli sistem paketlerini yükle
+    - name: Install system dependencies
+      run: |
+        sudo apt update
+        sudo apt install -y build-essential file python3-pip python3-venv
+        sudo apt install -y openjdk-8-jdk
+        sudo apt install -y libffi-dev libssl-dev
+        sudo apt install -y libgl1 libglib2.0-0
+
+    # 4. Adım: Buildozer'ı kur
+    - name: Install Buildozer
+      run: |
+        pip3 install --user Cython==0.29.36
+        pip3 install --user buildozer
+        echo "$HOME/.local/bin" >> $GITHUB_PATH # PATH'e ekle, böylece buildozer komutu bulunur
+
+    # 5. Adım: Buildozer'in çalışması için gerekli dizinleri oluştur (Hız için)
+    - name: Setup directories
+      run: |
+        mkdir -p ~/.buildozer/android/platform
+        touch ~/.buildozer/android/platform/android-sdk-20.txt
+        touch ~/.buildozer/android/platform/android-ndk-r19c.txt
+        touch ~/.buildozer/android/platform/android-27.txt
+
+    # 6. Adım: Uygulama gereksinimlerini yükle (Varsa requirements.txt)
+    - name: Install app requirements
+      run: |
+        if [ -f "requirements.txt" ]; then pip3 install --user -r requirements.txt; fi
+
+    # 7. Adım: Android SDK/NDK'yı Buildozer ile indir ve kur (Bu uzun sürebilir!)
+    # İlk çalıştırma bazen hata veriyor, ama önemli değil, devam edecek.
+    - name: Download/Setup Android SDK/NDK
+      run: |
+        buildozer android debug
+      continue-on-error: true # Hata olsa bile sonraki adıma geç
+
+    # 8. Adım: APK'yı Derle (Asıl Derleme)
+    - name: Build APK
+      id: build_apk
+      run: |
+        buildozer android debug
+        # APK dosyasının yolunu bul ve sonraki adımlar için kaydet
+        echo "apk_file=$(find . -name '*.apk' | head -n 1)" >> $GITHUB_OUTPUT
+
+    # 9. Adım: APK Dosyasını Yükle (GitHub Actions sekmesinde indirilebilir hale getir)
+    - name: Upload APK
+      uses: actions/upload-artifact@v3 # Hazır bir eylem kullanıyoruz
+      with:
+        name: kivy-app-apk # Yüklenen dosya grubunun adı
+        path: ${{ steps.build_apk.outputs.apk_file }} # APK dosyasının yolu
+        if-no-files-found: error # APK bulunamazsa hata ver
